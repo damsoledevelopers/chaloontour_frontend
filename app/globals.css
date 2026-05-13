@@ -1,0 +1,163 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: 30 58 95;
+  --color-accent: 196 30 58;
+  --bg-app: 248 250 252;
+  --bg-card: 255 255 255;
+}
+
+body {
+  @apply bg-slate-50 text-gray-900 antialiased;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-xl focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors;
+}
+
+.btn-primary {
+  @apply btn bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500 shadow-sm;
+}
+
+.btn-secondary {
+  @apply btn bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 focus:ring-primary-300;
+}
+
+.card {
+  @apply bg-white rounded-xl shadow-card border border-gray-100;
+}
+
+.form-input {
+  @apply block w-full rounded-xl border border-gray-300 bg-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors;
+}
+
+.table {
+  @apply min-w-full divide-y divide-gray-200;
+}
+
+.table th {
+  @apply px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-slate-50;
+}
+
+.table td {
+  @apply px-4 py-3 text-sm;
+}
+
+/* Print: only list view table on leads page */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .leads-page * {
+    visibility: hidden;
+  }
+
+  .leads-print-area,
+  .leads-print-area * {
+    visibility: visible;
+  }
+
+  .leads-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 0;
+    background: white;
+  }
+
+  .leads-print-area .print-only {
+    margin-bottom: 0.5rem;
+  }
+
+  /* Tour PDF: show only the designed invoice area when printing */
+  .tour-pdf-page * {
+    visibility: hidden;
+  }
+
+  .tour-pdf-print-area,
+  .tour-pdf-print-area * {
+    visibility: visible;
+  }
+
+  .tour-pdf-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    min-height: 100vh;
+    background: white;
+    padding: 0;
+  }
+
+  /* Tour PDF (admin tour-pdf page): hide everything except PDF root when printing */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Off-screen hidden root uses display:none on screen; must show in print */
+  #pdf-print-root {
+    display: block !important;
+    visibility: visible;
+  }
+
+  .pdf-root-print,
+  .pdf-root-print * {
+    visibility: visible;
+  }
+
+  .pdf-root-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    color-adjust: exact;
+  }
+
+  .pdf-root-print .noprint {
+    display: none !important;
+  }
+
+  @page {
+    size: A4;
+    margin: 0;
+  }
+}
+
+/* Tour PDF new window print styles */
+@page {
+  size: A4;
+  margin: 0;
+}
+
+.print-only {
+  display: none;
+}
+
+/* Shared small helpers for PDF sections */
+.section-heading {
+  @apply text-sm font-semibold text-slate-800 mb-1.5;
+}
+
+.summary-th {
+  @apply px-3 py-2 text-left text-[11px] font-semibold text-slate-600 border-b border-slate-200;
+}
+
+.summary-td {
+  @apply px-3 py-2 align-top text-[11px] text-slate-800 border-b border-slate-100;
+}
+
+.note-text {
+  @apply text-[11px] text-slate-600 mb-2;
+}

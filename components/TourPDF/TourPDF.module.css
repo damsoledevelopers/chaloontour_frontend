@@ -1,0 +1,527 @@
+/* Print styles for PDF are in app/globals.css (body * / .pdf-root-print) – CSS Modules cannot use global selectors */
+
+/* ===== PDF PAGE ===== */
+.pdfRoot {
+    width: 210mm;
+    min-height: auto;
+    margin: 0 auto;
+    background: #ffffff;
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 11pt;
+    color: #000000;
+    box-shadow: none;
+    box-sizing: border-box;
+    display: block;
+    height: auto;
+    padding: 20px 40px;
+}
+
+.tableHeader,
+.table,
+.optionalSection,
+.memorableTripBox,
+.footer {
+    break-inside: auto;
+    margin-bottom: 12px;
+}
+
+.itinerary-day {
+    break-inside: auto;
+    margin-bottom: 15px;
+}
+
+.pdfRoot table tr {
+    break-inside: avoid;
+}
+
+.sectionBlock {
+    margin-bottom: 12px;
+}
+
+.sectionSpacer {
+    height: 20px;
+    width: 100%;
+}
+
+.fullImg {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Identical PDF container lock for generation */
+.pdfContainer {
+    width: 210mm;
+    min-height: auto;
+    margin: 0 auto;
+    background: white;
+    box-sizing: border-box;
+}
+
+.page {
+    position: relative;
+    width: 210mm;
+    min-height: auto;
+    padding: 15px 20px;
+    box-sizing: border-box;
+    background-color: #fff;
+    border: none;
+    margin-bottom: 0;
+    overflow: visible;
+}
+
+.pageFirst {
+    break-after: page;
+}
+
+.section {
+    break-inside: avoid;
+    margin-bottom: 15px;
+}
+
+.previewPage {
+    min-height: auto;
+    /* page-break-after: auto; */
+    break-after: auto;
+    overflow: visible;
+}
+
+.previewPage+.previewPage {
+    margin-top: 14px;
+}
+
+.page:last-child {
+    /* page-break-after: auto; */
+    break-after: auto;
+}
+
+.pageBody {
+    border: none;
+    padding: 0;
+    height: auto;
+    min-height: auto;
+    position: relative;
+    z-index: 1;
+}
+
+.previewPageBody {
+    height: auto;
+    min-height: auto;
+}
+
+.watermark {
+    position: absolute;
+    top: 38%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-30deg) scale(2);
+    opacity: 0.19;
+    z-index: 0;
+    pointer-events: none;
+    user-select: none;
+    overflow: hidden;
+}
+
+/* ===== HEADER ===== */
+.header {
+    text-align: center;
+    margin-bottom: 12px;
+}
+
+.logoBox {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 18px;
+}
+
+.logoImg {
+    max-width: 220px;
+    height: auto;
+}
+
+/* font-family comes from next/font (Merriweather) on the h1 — do not set here or PDF preview diverges */
+.mainTitle {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+/* ===== IMAGES SECTION ===== */
+.imageSection {
+    margin-bottom: 14px;
+}
+
+.singleImageWrap {
+    width: 100%;
+    height: 320px;
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 10px;
+    border: 1px solid #ddd;
+}
+
+.mainImageWrap {
+    width: 100%;
+    height: 300px;
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 10px;
+    border: 1px solid #ddd;
+}
+
+.subImagesGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.subImageWrap {
+    width: 100%;
+    height: 180px;
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #ddd;
+}
+
+.dataTable {
+    border: 1px solid #000;
+}
+
+.dataTable th {
+    background: #f2f2f2;
+    font-weight: bold;
+    text-align: center;
+    color: #000;
+    border: 1px solid #000;
+    padding: 8px 10px;
+}
+
+.dataTable td {
+    border: 1px solid #000;
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: middle;
+    word-wrap: break-word;
+}
+
+/* ===== SECTION HEADERS (USING TABLES FOR PARITY) ===== */
+.tableHeader {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0;
+    border: none !important;
+}
+
+.tableHeader td {
+    padding: 7px 0 !important;
+    text-align: center;
+    vertical-align: middle;
+    border: none !important;
+    border-radius: 4px;
+    line-height: 1;
+}
+
+.tableHeaderText {
+    color: #ffffff;
+    font-size: 12pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    font-family: Arial, sans-serif;
+    line-height: normal;
+}
+
+/* Backwards compatibility for text types */
+.textRed {
+    color: #c62828;
+}
+
+.textBlue {
+    color: #1565c0;
+}
+
+/* ===== TABLES ===== */
+.table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    margin-bottom: 12px;
+    border: 2px solid #000;
+}
+
+.table th,
+.table td {
+    border: 1px solid #000;
+    padding: 6px 8px;
+    text-align: left;
+    font-size: 9.5pt;
+    vertical-align: middle;
+    word-break: break-word;
+}
+
+.table th {
+    background-color: #f5f5f5;
+    text-align: center;
+}
+
+.summaryTable td:first-child {
+    width: 8%;
+    text-align: center;
+}
+
+.summaryTable td:nth-child(2) {
+    width: 34%;
+    font-weight: bold;
+}
+
+.summaryTable td:nth-child(3) {
+    width: 58%;
+}
+
+.accommodationTable th:nth-child(1),
+.accommodationTable td:nth-child(1) {
+    width: 9%;
+    text-align: center;
+}
+
+.accommodationTable th:nth-child(2),
+.accommodationTable td:nth-child(2) {
+    width: 24%;
+}
+
+.accommodationTable th:nth-child(3),
+.accommodationTable td:nth-child(3) {
+    width: 16%;
+}
+
+.accommodationTable th:nth-child(4),
+.accommodationTable td:nth-child(4) {
+    width: 19%;
+}
+
+.accommodationTable th:nth-child(5),
+.accommodationTable td:nth-child(5) {
+    width: 17%;
+}
+
+.accommodationTable th:nth-child(6),
+.accommodationTable td:nth-child(6) {
+    width: 15%;
+}
+
+.flightTable th:nth-child(1),
+.flightTable td:nth-child(1) {
+    width: 9%;
+    text-align: center;
+}
+
+.flightTable th:nth-child(2),
+.flightTable td:nth-child(2) {
+    width: 28%;
+}
+
+.flightTable th:nth-child(3),
+.flightTable td:nth-child(3) {
+    width: 28%;
+}
+
+.flightTable th:nth-child(4),
+.flightTable td:nth-child(4) {
+    width: 20%;
+}
+
+.flightTable th:nth-child(5),
+.flightTable td:nth-child(5) {
+    width: 15%;
+}
+
+.dayTable {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+    border: 1px solid #d4d400 !important;
+}
+
+.dayTable td {
+    padding: 5px 0 !important;
+    text-align: center;
+    vertical-align: middle;
+    background-color: #ffeb3b;
+    border: none !important;
+    line-height: 1;
+}
+
+.dayTableText {
+    color: #000;
+    font-weight: bold;
+    font-size: 11pt;
+    font-family: Arial, sans-serif;
+    line-height: normal;
+}
+
+.itineraryTitle {
+    color: #c62828;
+    font-weight: bold;
+    text-decoration: underline;
+}
+
+.itineraryContent {
+    margin-bottom: 12px;
+    line-height: 1.5;
+}
+
+.placesTitle {
+    color: #c62828;
+    font-weight: bold;
+    text-decoration: underline;
+    margin-top: 10px;
+    margin-bottom: 5px;
+}
+
+.placesList {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+}
+
+.placeItem {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 6px;
+    font-size: 10.5pt;
+    line-height: 1.4;
+}
+
+.bulletIcon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.iconWrapper {
+    width: 20px;
+    min-width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.placeText {
+    display: block;
+    flex: 1;
+    font-size: 10.5pt;
+    line-height: 1.4;
+    color: #000;
+}
+
+.optionalSection {
+    margin-top: 12px;
+}
+
+.optionalHeading {
+    color: #c62828;
+    font-weight: bold;
+    font-size: 12pt;
+    text-decoration: underline;
+    margin-bottom: 8px;
+}
+
+.optionalList {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.optionalListItem {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 6px;
+    font-size: 10.5pt;
+    line-height: 1.4;
+}
+
+.memorableTripBox {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border: 1px solid #1565c0;
+    background: #f4f8ff;
+}
+
+.memorableTripHeading {
+    color: #1565c0;
+    font-weight: bold;
+    font-size: 12pt;
+    margin-bottom: 6px;
+}
+
+.memorableTripText {
+    margin: 0;
+    font-size: 10.5pt;
+    line-height: 1.5;
+    color: #000;
+}
+
+/* ===== FOOTER / SIGNATURE ===== */
+.footer {
+    margin-top: 16px;
+    text-align: left;
+}
+
+.footerNote {
+    text-align: left;
+    font-size: 9pt;
+    margin-bottom: 20px;
+    font-style: italic;
+}
+
+.companyInfoFooter {
+    text-align: left;
+}
+
+.companyLink {
+    color: #0d47a1;
+    font-weight: bold;
+    text-decoration: underline;
+    font-size: 13pt;
+}
+
+.ceoName {
+    font-weight: bold;
+    color: #000;
+    margin-top: 5px;
+}
+
+.contactNumbers {
+    color: #c62828;
+    font-weight: bold;
+}
+
+.contactLine {
+    color: #c62828;
+    font-weight: bold;
+    margin-top: 4px;
+}
+
+.companyLinkInline {
+    color: #0d47a1;
+    text-decoration: underline;
+}
+
+/* Disable animations in export mode, but allow transforms for watermark */
+.pdfMode *:not(.watermark) {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+}
+
+.pdfMode .watermark {
+    animation: none !important;
+    transition: none !important;
+    /* We allow transforms here because the watermark depends on translate/rotate/scale */
+}
