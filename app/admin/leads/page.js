@@ -1,20 +1,20 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import DashboardLayout from '../../../components/Layout/DashboardLayout'
 import { useAuth } from '../../../contexts/AuthContext'
 import { api } from '../../../lib/api'
-import { Search, Phone, Mail, MapPin, Calendar, User, Plus, Edit, Eye, Trash2, Upload, X, Users, UserCheck, TrendingUp, CheckCircle, UserX, AlertCircle, ArrowUp, FileText, Printer, RefreshCw, ChevronUp, ChevronDown, MoreHorizontal, Clock, Package, BarChart3, Bell, Target, Zap, Shield, Activity, ShieldCheck } from 'lucide-react'
+import { Search, Phone, Mail, MapPin, Calendar, User, Plus, Edit, Eye, Trash2, Upload, X, Users, UserCheck, TrendingUp, CheckCircle, UserX, AlertCircle, ArrowUp, FileText, Printer, RefreshCw, ChevronUp, ChevronDown, MoreHorizontal, Clock, Package, BarChart3, Bell, Target, Zap, Shield, Activity, ShieldCheck, Copy as CopyIcon } from 'lucide-react'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
 import * as XLSX from 'xlsx'
 import Papa from 'papaparse'
-import EntryPermissionModal from '../../../components/Permissions/EntryPermissionModal'
 import AddLeadModal from '../../../components/Leads/AddLeadModal'
 import LeadDetailsModal from '../../../components/Leads/LeadDetailsModal'
 import EditLeadModal from '../../../components/Leads/EditLeadModal'
-import { checkEntryPermission } from '../../../lib/permissions'
+import { checkEntryPermission, canDeleteLead as canDeleteLeadFn, canUploadExcel as canUploadExcelFn, canCreateLead as canCreateLeadFn, canAssignLead as canAssignLeadFn } from '../../../lib/permissions'
+import { getLeadsPath, getRoleHomePath, getScopedPath } from '../../../lib/appPaths'
 
 // Helper to get token from localStorage (persists across sessions)
 const getToken = () => {
@@ -48,10 +48,13 @@ function resolveEntryPermission(req, entry, moduleName, action) {
   return true
 }
 
-export default function AdminLeadsPage() {
+function AdminLeadsPageContent() {
   const { user, loading: authLoading, checkPermission } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const leadsPath = getLeadsPath(user)
+  const dashboardPath = getRoleHomePath(user)
+  const tourPdfPath = getScopedPath(user, '/tour-pdf')
 
   // Open modal from query (e.g. /admin/leads?add=1, ?view=id, ?edit=id)
   useEffect(() => {
@@ -61,7 +64,7 @@ export default function AdminLeadsPage() {
     const editId = searchParams.get('edit')
     if (add === '1') {
       setShowAddModal(true)
-      router.replace('/admin/leads', { scroll: false })
+      router.replace(leadsPath, { scroll: false })
     } else if (viewId) {
       setEditLeadId(null)
       setShowEditModal(false)
@@ -69,39 +72,38 @@ export default function AdminLeadsPage() {
         setViewLead(r.data.lead)
         setShowViewModal(true)
       }).catch(() => toast.error('Lead not found'))
-      router.replace('/admin/leads', { scroll: false })
+      router.replace(leadsPath, { scroll: false })
     } else if (editId) {
       setViewLead(null)
       setShowViewModal(false)
       setEditLeadId(editId)
       setShowEditModal(true)
-      router.replace('/admin/leads', { scroll: false })
+      router.replace(leadsPath, { scroll: false })
     }
-  }, [searchParams, authLoading, user])
+  }, [searchParams, authLoading, user, leadsPath, router])
 
   // Role-based access control
   useEffect(() => {
     if (!authLoading && user) {
       if (!checkPermission('leads', 'view')) {
         toast.error('You do not have permission to view Leads')
-        router.push('/admin/dashboard')
+        router.push(dashboardPath)
       }
     }
-  }, [user, authLoading, router, checkPermission])
+  }, [user, authLoading, router, checkPermission, dashboardPath])
 
   // Role-based feature visibility
-  const isSuperAdmin = user?.role === 'super_admin'
-  const isAgencyAdmin = user?.role === 'agency_admin'
-  const isAgent = user?.role === 'agent'
+  const isSuperAdmin = user?.role === 'superadmin'
   const isStaff = user?.role === 'staff'
 
-  // Dynamic permissions from Super Admin
-  const canViewLeads = checkPermission('leads', 'view')
-  const canCreateLead = checkPermission('leads', 'create')
-  const canEditLead = checkPermission('leads', 'edit')
-  const canDeleteLead = checkPermission('leads', 'delete')
+  // Permissions: superadmin full; staff can add/upload like superadmin; staff view/edit assigned only; no delete/assign (bulk)
+  const canViewLeads = true
+  const canCreateLead = canCreateLeadFn(user)
+  const canEditLead = true
+  const canDeleteLead = canDeleteLeadFn(user)
+  const canUploadExcelBtn = canUploadExcelFn(user)
+  const canAssignLeadBtn = isSuperAdmin && canAssignLeadFn(user)
 
-  const canUploadLeads = canCreateLead
   const canBulkActions = canEditLead || canDeleteLead
 
   const [leads, setLeads] = useState([])
@@ -115,7 +117,6 @@ export default function AdminLeadsPage() {
     search: '',
     startDate: '',
     endDate: '',
-    agency: '',
     property: '',
     reportingManager: '',
     team: '',
@@ -132,7 +133,6 @@ export default function AdminLeadsPage() {
   const [owners, setOwners] = useState([])
   const [allAgents, setAllAgents] = useState([]) // Store all agents for per-lead filtering
   const [sources, setSources] = useState([])
-  const [agencies, setAgencies] = useState([])
   const [properties, setProperties] = useState([])
   const isUploadingRef = useRef(false)
   const [selectedLeads, setSelectedLeads] = useState([])
@@ -140,7 +140,6 @@ export default function AdminLeadsPage() {
   const [bulkAction, setBulkAction] = useState('')
   const [bulkStatus, setBulkStatus] = useState('')
   const [bulkAgent, setBulkAgent] = useState('')
-  const [bulkAgency, setBulkAgency] = useState('')
   const [showBulkModal, setShowBulkModal] = useState(false)
   const [dashboardMetrics, setDashboardMetrics] = useState(null)
   const [missedFollowUps, setMissedFollowUps] = useState(0)
@@ -150,18 +149,89 @@ export default function AdminLeadsPage() {
   const [rescoring, setRescoring] = useState(null)
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [searchDebounceTimer, setSearchDebounceTimer] = useState(null)
-  const [permissionModalEntry, setPermissionModalEntry] = useState(null)
   const [draggedLead, setDraggedLead] = useState(null)
   const [draggedOverColumn, setDraggedOverColumn] = useState(null)
   const [kanbanLeadsCapped, setKanbanLeadsCapped] = useState(false)
   const [filterChangeTimer, setFilterChangeTimer] = useState(null)
   const metadataFetchedRef = useRef(false)
   const lastFilterStateRef = useRef(null)
+  const bulkFileInputRef = useRef(null)
   const [showAddModal, setShowAddModal] = useState(false)
   const [showViewModal, setShowViewModal] = useState(false)
   const [viewLead, setViewLead] = useState(null)
   const [showEditModal, setShowEditModal] = useState(false)
   const [editLeadId, setEditLeadId] = useState(null)
+  const [showUploadExcelModal, setShowUploadExcelModal] = useState(false)
+  const [uploadExcelFile, setUploadExcelFile] = useState(null)
+  const [uploadExcelLoading, setUploadExcelLoading] = useState(false)
+  const [duplicatingLeadId, setDuplicatingLeadId] = useState(null)
+
+  const insertLeadBelowSource = (existingLeads, sourceLeadId, duplicatedLead) => {
+    const nextLeads = [...existingLeads]
+    const sourceIndex = nextLeads.findIndex(item => String(item?._id) === String(sourceLeadId))
+
+    if (sourceIndex === -1) {
+      nextLeads.unshift(duplicatedLead)
+      return nextLeads
+    }
+
+    nextLeads.splice(sourceIndex + 1, 0, duplicatedLead)
+    return nextLeads
+  }
+
+  const handleCopyLead = async (lead) => {
+    try {
+      if (!lead) return
+
+      const sourceLeadId = String(lead._id || '')
+      if (!sourceLeadId) {
+        toast.error('Could not duplicate lead')
+        return
+      }
+
+      setDuplicatingLeadId(sourceLeadId)
+      const response = await api.post(`/leads/${sourceLeadId}/duplicate`)
+      const duplicatedLead = response.data?.lead
+
+      if (!duplicatedLead) {
+        throw new Error('No duplicated lead returned')
+      }
+
+      setLeads(prevLeads => insertLeadBelowSource(prevLeads, sourceLeadId, duplicatedLead))
+      setAllLeads(prevLeads => (
+        prevLeads.length > 0
+          ? insertLeadBelowSource(prevLeads, sourceLeadId, duplicatedLead)
+          : prevLeads
+      ))
+      setPagination(prev => {
+        const nextTotal = (prev.total || 0) + 1
+        return {
+          ...prev,
+          total: nextTotal,
+          pages: Math.max(1, Math.ceil(nextTotal / Math.max(prev.limit || 1, 1)))
+        }
+      })
+
+      fetchDashboardMetrics()
+      fetchMissedFollowUps()
+      toast.success('Lead duplicated successfully')
+    } catch (error) {
+      console.error('Failed to duplicate lead:', error)
+      toast.error(error.response?.data?.message || 'Could not duplicate lead')
+    } finally {
+      setDuplicatingLeadId(null)
+    }
+  }
+
+  const handleOpenLeadPdfPreview = (lead) => {
+    const leadId = String(lead?._id || '')
+    if (!leadId) {
+      toast.error('Lead not found')
+      return
+    }
+
+    router.push(`${tourPdfPath}?leadId=${encodeURIComponent(leadId)}&preview=1`)
+  }
 
   // Separate effect for initial data fetch (runs once on auth)
   useEffect(() => {
@@ -183,7 +253,6 @@ export default function AdminLeadsPage() {
         if (!metadataFetchedRef.current) {
           Promise.all([
             owners.length === 0 ? fetchOwners() : Promise.resolve(),
-            agencies.length === 0 ? fetchAgencies() : Promise.resolve(),
             properties.length === 0 ? fetchProperties() : Promise.resolve(),
             fetchReportingManagers(),
             fetchTeams()
@@ -214,14 +283,15 @@ export default function AdminLeadsPage() {
       owner: filters.owner,
       source: filters.source,
       status: filters.status,
-      agency: filters.agency,
       property: filters.property,
       reportingManager: filters.reportingManager,
       team: filters.team,
       priority: filters.priority,
       search: filters.search,
       page: pagination.page,
-      limit: pagination.limit
+      limit: pagination.limit,
+      missed: searchParams.get('missed'),
+      recent: searchParams.get('recent')
     })
 
     if (lastFilterStateRef.current === filterState) {
@@ -245,15 +315,9 @@ export default function AdminLeadsPage() {
     return () => {
       if (timer) clearTimeout(timer)
     }
-  }, [filters, pagination.page, pagination.limit, user, authLoading, viewMode])
+  }, [filters, pagination.page, pagination.limit, user, authLoading, viewMode, searchParams])
 
 
-  // Refetch owners only when agency filter explicitly changes
-  useEffect(() => {
-    if (!authLoading && user && filters.agency) {
-      fetchOwners()
-    }
-  }, [filters.agency, user, authLoading])
 
   // Cleanup search debounce timer on unmount
   useEffect(() => {
@@ -317,6 +381,12 @@ export default function AdminLeadsPage() {
               }
             }
           })
+          if (searchParams.get('missed') === '1') {
+            kanbanParams.append('missed', '1')
+          }
+          if (searchParams.get('recent') === '1') {
+            kanbanParams.append('recent', '1')
+          }
           
           // Fetch first batch immediately
           const allResponse = await api.get(`/leads?${kanbanParams}`)
@@ -357,7 +427,7 @@ export default function AdminLeadsPage() {
           const filteredLeads = fetchedAllLeads.filter(lead => {
             const hasPermission = checkEntryPermission(lead, user, 'view', canViewLeads)
             if (!hasPermission) {
-              console.log('Lead filtered out by permissions:', lead._id, lead.contact?.firstName, lead.contact?.lastName)
+              console.log('Lead filtered out by permissions:', lead._id, lead.name)
             }
             return hasPermission
           })
@@ -423,6 +493,12 @@ export default function AdminLeadsPage() {
         if (endDate) {
           params.append('endDate', endDate)
         }
+        if (searchParams.get('missed') === '1') {
+          params.append('missed', '1')
+        }
+        if (searchParams.get('recent') === '1') {
+          params.append('recent', '1')
+        }
 
         const response = await api.get(`/leads?${params}`)
         const fetchedLeads = response.data.leads || []
@@ -455,11 +531,15 @@ export default function AdminLeadsPage() {
 
   const fetchOwners = async () => {
     try {
-      const agents = user?.role === 'agent' ? [user] : []
-      setOwners(agents)
-      setAllAgents(agents)
-
-      // Extract unique sources from leads (role-based)
+      if (user?.role === 'superadmin' || user?.role === 'staff') {
+        const res = await api.get('/users')
+        const userList = res.data.users || []
+        setOwners(userList)
+        setAllAgents(userList)
+      } else {
+        setOwners([])
+        setAllAgents([])
+      }
       const responseLeads = await api.get('/leads?limit=500')
       const allLeadsData = responseLeads.data.leads || []
       const uniqueSources = [...new Set(allLeadsData.map(lead => lead.source).filter(Boolean))]
@@ -469,34 +549,6 @@ export default function AdminLeadsPage() {
     }
   }
 
-  const fetchAgencies = async () => {
-    try {
-      // Role-based filtering for agencies
-      if (user?.role === 'super_admin') {
-        // Super admin can see all agencies
-        const response = await api.get('/agencies')
-        setAgencies(response.data.agencies || [])
-      } else if (user?.role === 'agency_admin') {
-        // Agency admin can only see their own agency
-        if (user.agency) {
-          const response = await api.get(`/agencies/${user.agency}`)
-          setAgencies(response.data.agency ? [response.data.agency] : [])
-        }
-      } else if (user?.role === 'agent') {
-        // Agent can only see their agency
-        if (user.agency) {
-          const response = await api.get(`/agencies/${user.agency}`)
-          setAgencies(response.data.agency ? [response.data.agency] : [])
-        }
-      } else {
-        const response = await api.get('/agencies')
-        setAgencies(response.data.agencies || [])
-      }
-    } catch (error) {
-      console.error('Error fetching agencies:', error)
-      setAgencies([])
-    }
-  }
 
   const fetchProperties = async () => {
     setProperties([])
@@ -567,7 +619,6 @@ export default function AdminLeadsPage() {
       search: '',
       startDate: '',
       endDate: '',
-      agency: '',
       property: '',
       reportingManager: '',
       team: '',
@@ -630,201 +681,44 @@ export default function AdminLeadsPage() {
   }
 
   const handleQuickAssign = async (leadId, agentId) => {
-    // Check if the value actually changed to avoid unnecessary updates
+    if (!canAssignLeadBtn) return
     const currentLead = leads.find(lead => String(getLeadId(lead)) === String(leadId))
-    const currentAgentId = currentLead?.assignedAgent?._id ? String(currentLead.assignedAgent._id) : (currentLead?.assignedAgent ? String(currentLead.assignedAgent) : null)
+    const currentId = currentLead?.assigned_to?._id ? String(currentLead.assigned_to._id) : (currentLead?.assigned_to ? String(currentLead.assigned_to) : null)
     const newAgentId = agentId ? String(agentId) : null
+    if (currentId === newAgentId) return
 
-    if (currentAgentId === newAgentId) {
-      // Value hasn't changed, skip update
-      return
-    }
-
-    // Store previous state references for rollback
     let previousLeadsState = null
     let previousAllLeadsState = null
-
-    // Optimistic update - update UI immediately
-    const assignedAgent = agentId ? owners.find(o => String(o._id) === String(agentId)) : null
+    const assignedUser = agentId ? owners.find(o => String(o._id) === String(agentId)) : null
     setLeads(prevLeads => {
       previousLeadsState = prevLeads
       return prevLeads.map(lead => {
-        const id = getLeadId(lead)
-        if (String(id) === String(leadId)) {
-          return {
-            ...lead,
-            assignedAgent: assignedAgent ? {
-              _id: assignedAgent._id,
-              firstName: assignedAgent.firstName,
-              lastName: assignedAgent.lastName
-            } : null
-          }
-        }
-        return lead
+        if (String(getLeadId(lead)) !== String(leadId)) return lead
+        return { ...lead, assigned_to: assignedUser ? { _id: assignedUser._id, firstName: assignedUser.firstName, lastName: assignedUser.lastName } : null }
       })
     })
-
-    // Also update allLeads for Kanban view
     setAllLeads(prevLeads => {
       previousAllLeadsState = prevLeads
       return prevLeads.map(lead => {
-        const id = getLeadId(lead)
-        if (String(id) === String(leadId)) {
-          return {
-            ...lead,
-            assignedAgent: assignedAgent ? {
-              _id: assignedAgent._id,
-              firstName: assignedAgent.firstName,
-              lastName: assignedAgent.lastName
-            } : null
-          }
-        }
-        return lead
+        if (String(getLeadId(lead)) !== String(leadId)) return lead
+        return { ...lead, assigned_to: assignedUser ? { _id: assignedUser._id, firstName: assignedUser.firstName, lastName: assignedUser.lastName } : null }
       })
     })
 
     try {
-      const response = await api.put(`/leads/${leadId}/assign`, { assignedAgent: agentId })
-
-      // Update with server response only if it's different
+      const response = await api.put(`/leads/${leadId}/assign`, { assigned_to: agentId })
       if (response.data?.lead) {
-        const serverAgent = response.data.lead.assignedAgent
-        setLeads(prevLeads =>
-          prevLeads.map(lead => {
-            const id = getLeadId(lead)
-            if (String(id) === String(leadId)) {
-              const currentAgent = lead.assignedAgent?._id ? String(lead.assignedAgent._id) : (lead.assignedAgent ? String(lead.assignedAgent) : null)
-              const serverAgentId = serverAgent?._id ? String(serverAgent._id) : (serverAgent ? String(serverAgent) : null)
-              if (currentAgent !== serverAgentId) {
-                return { ...lead, assignedAgent: serverAgent }
-              }
-            }
-            return lead
-          })
-        )
-        setAllLeads(prevLeads =>
-          prevLeads.map(lead => {
-            const id = getLeadId(lead)
-            if (String(id) === String(leadId)) {
-              const currentAgent = lead.assignedAgent?._id ? String(lead.assignedAgent._id) : (lead.assignedAgent ? String(lead.assignedAgent) : null)
-              const serverAgentId = serverAgent?._id ? String(serverAgent._id) : (serverAgent ? String(serverAgent) : null)
-              if (currentAgent !== serverAgentId) {
-                return { ...lead, assignedAgent: serverAgent }
-              }
-            }
-            return lead
-          })
-        )
+        const serverAssigned = response.data.lead.assigned_to
+        setLeads(prev => prev.map(l => String(getLeadId(l)) === String(leadId) ? { ...l, assigned_to: serverAssigned } : l))
+        setAllLeads(prev => prev.map(l => String(getLeadId(l)) === String(leadId) ? { ...l, assigned_to: serverAssigned } : l))
       }
-
       toast.success('Lead assigned successfully')
       fetchDashboardMetrics()
-      fetchMissedFollowUps()
     } catch (error) {
-      // Rollback on error
-      if (previousLeadsState) {
-        setLeads(previousLeadsState)
-      }
-      if (previousAllLeadsState) {
-        setAllLeads(previousAllLeadsState)
-      }
+      if (previousLeadsState) setLeads(previousLeadsState)
+      if (previousAllLeadsState) setAllLeads(previousAllLeadsState)
       console.error('Error assigning lead:', error)
       toast.error('Failed to assign lead')
-    }
-  }
-
-  const handleQuickAgencyChange = async (leadId, agencyId) => {
-    // Check if the value actually changed to avoid unnecessary updates
-    const currentLead = leads.find(lead => String(getLeadId(lead)) === String(leadId))
-    const currentAgencyId = currentLead?.agency?._id ? String(currentLead.agency._id) : (currentLead?.agency ? String(currentLead.agency) : null)
-    const newAgencyId = agencyId ? String(agencyId) : null
-
-    if (currentAgencyId === newAgencyId) {
-      // Value hasn't changed, skip update
-      return
-    }
-
-    // Store previous state references for rollback
-    let previousLeadsState = null
-    let previousAllLeadsState = null
-
-    // Optimistic update - update UI immediately
-    const selectedAgency = agencyId ? agencies.find(a => String(a._id) === String(agencyId)) : null
-    setLeads(prevLeads => {
-      previousLeadsState = prevLeads
-      return prevLeads.map(lead => {
-        const id = getLeadId(lead)
-        if (String(id) === String(leadId)) {
-          return {
-            ...lead,
-            agency: selectedAgency ? { _id: selectedAgency._id, name: selectedAgency.name } : null
-          }
-        }
-        return lead
-      })
-    })
-
-    // Also update allLeads for Kanban view
-    setAllLeads(prevLeads => {
-      previousAllLeadsState = prevLeads
-      return prevLeads.map(lead => {
-        const id = getLeadId(lead)
-        if (String(id) === String(leadId)) {
-          return {
-            ...lead,
-            agency: selectedAgency ? { _id: selectedAgency._id, name: selectedAgency.name } : null
-          }
-        }
-        return lead
-      })
-    })
-
-    try {
-      const response = await api.put(`/leads/${leadId}`, { agency: agencyId || null })
-
-      // Update with server response only if it's different
-      if (response.data?.lead) {
-        const serverAgency = response.data.lead.agency
-        setLeads(prevLeads =>
-          prevLeads.map(lead => {
-            const id = getLeadId(lead)
-            if (String(id) === String(leadId)) {
-              const currentAgency = lead.agency?._id ? String(lead.agency._id) : (lead.agency ? String(lead.agency) : null)
-              const serverAgencyId = serverAgency?._id ? String(serverAgency._id) : (serverAgency ? String(serverAgency) : null)
-              if (currentAgency !== serverAgencyId) {
-                return { ...lead, agency: serverAgency }
-              }
-            }
-            return lead
-          })
-        )
-        setAllLeads(prevLeads =>
-          prevLeads.map(lead => {
-            const id = getLeadId(lead)
-            if (String(id) === String(leadId)) {
-              const currentAgency = lead.agency?._id ? String(lead.agency._id) : (lead.agency ? String(lead.agency) : null)
-              const serverAgencyId = serverAgency?._id ? String(serverAgency._id) : (serverAgency ? String(serverAgency) : null)
-              if (currentAgency !== serverAgencyId) {
-                return { ...lead, agency: serverAgency }
-              }
-            }
-            return lead
-          })
-        )
-      }
-
-      toast.success('Lead agency updated successfully')
-      fetchDashboardMetrics()
-    } catch (error) {
-      // Rollback on error
-      if (previousLeadsState) {
-        setLeads(previousLeadsState)
-      }
-      if (previousAllLeadsState) {
-        setAllLeads(previousAllLeadsState)
-      }
-      console.error('Error updating lead agency:', error)
-      toast.error('Failed to update lead agency')
     }
   }
 
@@ -1198,13 +1092,14 @@ export default function AdminLeadsPage() {
   }
 
   const handleBulkAssign = async () => {
+    if (!canAssignLeadBtn) return
     if (selectedLeads.length === 0 || !bulkAgent) {
       toast.error('Please select leads and an agent')
       return
     }
 
     try {
-      const assignPromises = selectedLeads.map(id => api.put(`/leads/${id}/assign`, { assignedAgent: bulkAgent }))
+      const assignPromises = selectedLeads.map(id => api.put(`/leads/${id}/assign`, { assigned_to: bulkAgent }))
       await Promise.all(assignPromises)
       toast.success(`${selectedLeads.length} lead(s) assigned successfully`)
       setSelectedLeads([])
@@ -1219,30 +1114,6 @@ export default function AdminLeadsPage() {
       toast.error('Failed to assign some leads')
     }
   }
-
-  const handleBulkAssignAgency = async () => {
-    if (selectedLeads.length === 0 || !bulkAgency) {
-      toast.error('Please select leads and an agency')
-      return
-    }
-
-    try {
-      const assignPromises = selectedLeads.map(id => api.put(`/leads/${id}`, { agency: bulkAgency }))
-      await Promise.all(assignPromises)
-      toast.success(`${selectedLeads.length} lead(s) agency assigned successfully`)
-      setSelectedLeads([])
-      setShowBulkActions(false)
-      setBulkAgency('')
-      setShowBulkModal(false)
-      fetchLeads()
-      fetchDashboardMetrics()
-      fetchMissedFollowUps()
-    } catch (error) {
-      console.error('Error bulk assigning agency:', error)
-      toast.error('Failed to assign agency to some leads')
-    }
-  }
-
 
   const getStatusColor = (status) => {
     const colors = {
@@ -1374,12 +1245,11 @@ export default function AdminLeadsPage() {
 
       const data = sortedLeads.map(lead => ({
         'Lead ID': lead.leadId || `LEAD-${String(lead._id).slice(-6)}`,
-        'Contact Name': `${lead.contact?.firstName || ''} ${lead.contact?.lastName || ''}`.trim() || 'N/A',
-        'Email': lead.contact?.email || '-',
-        'Phone': lead.contact?.phone || '-',
-        'Source': getSourceLabel(lead.source),
-        'Assigned Agent': lead.assignedAgent ? `${lead.assignedAgent.firstName} ${lead.assignedAgent.lastName}` : 'Unassigned',
-        'Priority': lead.priority ? lead.priority.charAt(0).toUpperCase() + lead.priority.slice(1) : 'Warm',
+        'Name': lead.name?.trim() || 'N/A',
+        'Email': lead.email || '-',
+        'Phone': lead.phone || '-',
+        'Source': lead.source === 'excel' ? 'Excel' : (lead.source || 'Manual'),
+        'Assigned To': lead.assigned_to && typeof lead.assigned_to === 'object' ? `${lead.assigned_to.firstName || ''} ${lead.assigned_to.lastName || ''}`.trim() : 'Unassigned',
         'Status': getStatusLabel(lead.status),
         'Created Date': new Date(lead.createdAt).toLocaleDateString()
       }))
@@ -1411,13 +1281,8 @@ export default function AdminLeadsPage() {
     { id: 'new', title: 'New', colorClass: 'bg-yellow-400' },
     { id: 'contacted', title: 'Contacted', colorClass: 'bg-orange-400' },
     { id: 'qualified', title: 'Qualified', colorClass: 'bg-blue-400' },
-    { id: 'site_visit_scheduled', title: 'Site Visit Scheduled', colorClass: 'bg-cyan-400' },
-    { id: 'site_visit_completed', title: 'Site Visit Completed', colorClass: 'bg-teal-400' },
-    { id: 'negotiation', title: 'Negotiation', colorClass: 'bg-indigo-400' },
     { id: 'booked', title: 'Booked', colorClass: 'bg-green-400' },
-    { id: 'closed', title: 'Closed', colorClass: 'bg-emerald-600' },
-    { id: 'lost', title: 'Lost', colorClass: 'bg-red-400' },
-    { id: 'junk', title: 'Junk', colorClass: 'bg-gray-400' }
+    { id: 'lost', title: 'Lost', colorClass: 'bg-red-400' }
   ]
 
   const getLeadsByStatus = (status) => {
@@ -1545,9 +1410,12 @@ export default function AdminLeadsPage() {
             source: source,
             _rowIndex: index + 2
           }
-        }).filter(lead => {
-          // Require at least firstName and email OR phone
-          return lead.contact.firstName && (lead.contact.email || lead.contact.phone)
+        }).filter((lead) => {
+          const c = lead.contact
+          if (!c) return false
+          const hasName = Boolean(String(c.firstName || '').trim() || String(c.lastName || '').trim())
+          const hasReach = Boolean(String(c.email || '').trim() || String(c.phone || '').trim())
+          return hasName && hasReach
         })
 
         if (transformedData.length === 0) {
@@ -1621,6 +1489,34 @@ export default function AdminLeadsPage() {
     } finally {
       setLoading(false)
       setUploading(false)
+    }
+  }
+
+  const handleUploadExcelSubmit = async () => {
+    if (!uploadExcelFile) {
+      toast.error('Please select a file')
+      return
+    }
+    const ext = (uploadExcelFile.name || '').toLowerCase().split('.').pop()
+    if (ext !== 'csv' && ext !== 'xlsx' && ext !== 'xls') {
+      toast.error('Only .xlsx or .csv files are allowed')
+      return
+    }
+    setUploadExcelLoading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', uploadExcelFile)
+      const res = await api.post('/leads/upload', formData)
+      const created = res.data.created ?? 0
+      setShowUploadExcelModal(false)
+      setUploadExcelFile(null)
+      toast.success(`Successfully uploaded ${created} leads`)
+      fetchLeads()
+      fetchDashboardMetrics()
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Upload failed')
+    } finally {
+      setUploadExcelLoading(false)
     }
   }
 
@@ -1717,8 +1613,8 @@ export default function AdminLeadsPage() {
 
         {/* Header with Tabs - hidden when printing */}
         <div className="bg-white rounded-lg shadow-sm p-4 no-print">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center space-x-1 border-b border-gray-200">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between mb-4 min-w-0">
+            <div className="flex items-center space-x-1 border-b border-gray-200 min-w-0 shrink-0">
               <button
                 type="button"
                 onClick={(e) => {
@@ -1775,19 +1671,31 @@ export default function AdminLeadsPage() {
                 Kanban
               </button>
             </div>
-            <div className="flex items-center gap-2">
-              {(isSuperAdmin || isAgencyAdmin) && canCreateLead && (
-                <label className="h-10 inline-flex items-center gap-2 px-4 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 cursor-pointer text-sm font-medium transition-colors">
-                  <Upload className="h-4 w-4" />
-                  Import leads
-                  <input
-                    type="file"
-                    accept=".csv,.xlsx,.xls"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                    onClick={(e) => { e.target.value = '' }}
-                  />
-                </label>
+            <div className="flex items-center gap-2 flex-wrap justify-end min-w-0 overflow-x-auto pb-1 -mx-1 px-1">
+              <input
+                ref={bulkFileInputRef}
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                className="hidden"
+                onChange={handleFileUpload}
+              />
+              {canCreateLead && (
+                <button type="button" onClick={() => setShowAddModal(true)} className="h-10 inline-flex items-center gap-2 px-4 bg-primary-600 text-white rounded-xl hover:bg-primary-700 text-sm font-medium transition-colors shrink-0">
+                  <Plus className="h-4 w-4" />
+                  Add lead
+                </button>
+              )}
+              {canUploadExcelBtn && (
+                <>
+                  <button type="button" onClick={() => bulkFileInputRef.current?.click()} className="h-10 inline-flex items-center gap-2 px-4 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 text-sm font-medium transition-colors">
+                    <Upload className="h-4 w-4" />
+                    Import (preview)
+                  </button>
+                  <button type="button" onClick={() => setShowUploadExcelModal(true)} className="h-10 inline-flex items-center gap-2 px-4 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 text-sm font-medium transition-colors">
+                    <Upload className="h-4 w-4" />
+                    Upload Excel
+                  </button>
+                </>
               )}
               <button type="button" onClick={handleExportExcel} className="h-10 inline-flex items-center gap-2 px-4 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 text-sm font-medium transition-colors">
                 <FileText className="h-4 w-4" />
@@ -1797,12 +1705,6 @@ export default function AdminLeadsPage() {
                 <Printer className="h-4 w-4" />
                 Print
               </button>
-              {canCreateLead && (
-                <button type="button" onClick={() => setShowAddModal(true)} className="h-10 inline-flex items-center gap-2 px-4 bg-primary-600 text-white rounded-xl hover:bg-primary-700 text-sm font-medium transition-colors">
-                  <Plus className="h-4 w-4" />
-                  Add lead
-                </button>
-              )}
             </div>
           </div>
 
@@ -1838,16 +1740,8 @@ export default function AdminLeadsPage() {
                 className="h-10 min-w-[120px] pl-4 pr-9 py-2 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 cursor-pointer transition-colors appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2024%2024%22%20stroke%3D%22%236b7280%22%3E%3Cpath%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22M19%209l-7%207-7-7%22%2F%3E%3C%2Fsvg%22')] bg-[length:1.25rem] bg-[right_0.5rem_center] bg-no-repeat"
               >
                 <option value="">Source</option>
-                <option value="website">Website</option>
-                <option value="phone">Phone</option>
-                <option value="email">Email</option>
-                <option value="walk_in">Walk In</option>
-                <option value="referral">Referral</option>
-                <option value="social_media">Social Media</option>
-                <option value="other">Other</option>
-                {sources.filter(source => !['website', 'phone', 'email', 'walk_in', 'referral', 'social_media', 'other'].includes(source)).map((source) => (
-                  <option key={source} value={source}>{source}</option>
-                ))}
+                <option value="manual">Manual</option>
+                <option value="excel">Excel</option>
               </select>
 
               <select
@@ -1856,28 +1750,11 @@ export default function AdminLeadsPage() {
                 className="h-10 min-w-[140px] pl-4 pr-9 py-2 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 cursor-pointer transition-colors appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2024%2024%22%20stroke%3D%22%236b7280%22%3E%3Cpath%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22M19%209l-7%207-7-7%22%2F%3E%3C%2Fsvg%22')] bg-[length:1.25rem] bg-[right_0.5rem_center] bg-no-repeat"
               >
                 <option value="">Status</option>
-                <option value="new">New Lead</option>
+                <option value="new">New</option>
                 <option value="contacted">Contacted</option>
                 <option value="qualified">Qualified</option>
-                <option value="site_visit_scheduled">Site Visit Scheduled</option>
-                <option value="site_visit_completed">Site Visit Completed</option>
-                <option value="negotiation">Negotiation</option>
                 <option value="booked">Booked</option>
                 <option value="lost">Lost</option>
-                <option value="closed">Closed</option>
-                <option value="junk">Junk / Invalid</option>
-              </select>
-
-              <select
-                value={filters.priority}
-                onChange={(e) => setFilters(prev => ({ ...prev, priority: e.target.value }))}
-                className="h-10 min-w-[120px] pl-4 pr-9 py-2 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 cursor-pointer transition-colors appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2024%2024%22%20stroke%3D%22%236b7280%22%3E%3Cpath%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22M19%209l-7%207-7-7%22%2F%3E%3C%2Fsvg%22')] bg-[length:1.25rem] bg-[right_0.5rem_center] bg-no-repeat"
-              >
-                <option value="">Priority</option>
-                <option value="Hot">Hot</option>
-                <option value="Warm">Warm</option>
-                <option value="Cold">Cold</option>
-                <option value="Not_interested">Not Interested</option>
               </select>
 
               <div className="relative">
@@ -2076,10 +1953,8 @@ export default function AdminLeadsPage() {
                   {/* Print: one card per lead so all data fits on page */}
                   <div className="hidden print:block space-y-4">
                     {sortedLeads && sortedLeads.map((lead) => {
-                      const c = lead.contact || {}
-                      const name = `${c.firstName || ''} ${c.lastName || ''}`.trim() || '–'
-                      const statusLabels = { new: 'New Lead', contacted: 'Contacted', qualified: 'Qualified', site_visit_scheduled: 'Site Visit Scheduled', site_visit_completed: 'Site Visit Completed', negotiation: 'Negotiation', booked: 'Booked', lost: 'Lost', closed: 'Closed', junk: 'Junk / Invalid' }
-                      const statusVal = statusLabels[(lead.status || 'new').toLowerCase()] || lead.status || '–'
+                      const name = lead.name?.trim() || '–'
+                      const statusVal = (lead.status || 'new').charAt(0).toUpperCase() + (lead.status || 'new').slice(1)
                       const created = lead.createdAt ? new Date(lead.createdAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '–'
                       return (
                         <div key={getLeadId(lead)} className="border border-gray-200 rounded-lg overflow-hidden break-inside-avoid">
@@ -2088,10 +1963,9 @@ export default function AdminLeadsPage() {
                             <span className="text-sm font-medium text-primary-700">{statusVal}</span>
                           </div>
                           <div className="p-4 text-sm">
-                            <div className="flex justify-between py-1.5 border-b border-gray-100"><span className="text-gray-500">Mobile Number</span><span className="font-medium text-gray-900">{c.phone || '–'}</span></div>
-                            <div className="flex justify-between py-1.5 border-b border-gray-100"><span className="text-gray-500">Email ID</span><span className="font-medium text-gray-900">{c.email || '–'}</span></div>
-                            <div className="flex justify-between py-1.5 border-b border-gray-100"><span className="text-gray-500">Lead Source</span><span className="font-medium text-gray-900">{lead.source || '–'}</span></div>
-                            <div className="flex justify-between py-1.5 border-b border-gray-100"><span className="text-gray-500">Priority</span><span className="font-medium text-gray-900">{lead.priority || '–'}</span></div>
+                            <div className="flex justify-between py-1.5 border-b border-gray-100"><span className="text-gray-500">Phone</span><span className="font-medium text-gray-900">{lead.phone || '–'}</span></div>
+                            <div className="flex justify-between py-1.5 border-b border-gray-100"><span className="text-gray-500">Email</span><span className="font-medium text-gray-900">{lead.email || '–'}</span></div>
+                            <div className="flex justify-between py-1.5 border-b border-gray-100"><span className="text-gray-500">Source</span><span className="font-medium text-gray-900">{lead.source || '–'}</span></div>
                             <div className="flex justify-between py-1.5 border-b border-gray-100"><span className="text-gray-500">Lead ID</span><span className="font-medium text-gray-900">{lead.leadId || lead._id || '–'}</span></div>
                             <div className="flex justify-between py-1.5"><span className="text-gray-500">Created At</span><span className="font-medium text-gray-900">{created}</span></div>
                           </div>
@@ -2117,19 +1991,8 @@ export default function AdminLeadsPage() {
                           <th className="px-6 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">
                             Lead ID
                           </th>
-                          <th className="px-6 py-3 text-center text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">
-                            Score
-                          </th>
-                          <th
-                            className="px-6 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider cursor-pointer whitespace-nowrap"
-                            onClick={() => handleSort('contactName')}
-                          >
-                            <div className="flex items-center gap-2 whitespace-nowrap">
-                              Contact Name
-                              {sortColumn === 'contactName' && (
-                                sortDirection === 'asc' ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />
-                              )}
-                            </div>
+                          <th className="px-6 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">
+                            Name
                           </th>
                           <th
                             className="px-6 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider cursor-pointer whitespace-nowrap"
@@ -2164,8 +2027,11 @@ export default function AdminLeadsPage() {
                               )}
                             </div>
                           </th>
-                          <th className="px-6 py-3 text-center text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">
-                            Priority
+                          <th className="px-6 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">
+                            Assigned To
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">
+                            Total / Payment
                           </th>
                           <th
                             className="px-6 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider cursor-pointer whitespace-nowrap"
@@ -2189,20 +2055,6 @@ export default function AdminLeadsPage() {
                               )}
                             </div>
                           </th>
-                          <th
-                            className="px-6 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider cursor-pointer whitespace-nowrap"
-                            onClick={() => handleSort('updatedAt')}
-                          >
-                            <div className="flex items-center gap-2 whitespace-nowrap">
-                              Last Updated
-                              {sortColumn === 'updatedAt' && (
-                                sortDirection === 'asc' ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />
-                              )}
-                            </div>
-                          </th>
-                          <th className="px-6 py-3 text-left text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">
-                            Follow-Up
-                          </th>
                           <th className="px-6 py-3 text-center text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap">
                             Actions
                           </th>
@@ -2211,48 +2063,10 @@ export default function AdminLeadsPage() {
                       <tbody className="bg-white divide-y divide-gray-200">
                         {sortedLeads.map((lead) => {
                           const leadId = getLeadId(lead)
-                          const contactName = `${lead.contact?.firstName || ''} ${lead.contact?.lastName || ''}`.trim() || 'N/A'
-                          const getSourceLabel = (source) => {
-                            const labels = {
-                              website: 'Website',
-                              phone: 'Phone',
-                              email: 'Email',
-                              walk_in: 'Walk In',
-                              referral: 'Referral',
-                              social_media: 'Social Media',
-                              other: 'Other'
-                            }
-                            return labels[source] || source || 'Other'
-                          }
-                          const getStatusLabel = (status) => {
-                            if (!status) return 'New Lead'
-                            const statusLabels = {
-                              new: 'New Lead',
-                              contacted: 'Contacted',
-                              qualified: 'Qualified',
-                              site_visit_scheduled: 'Site Visit Scheduled',
-                              site_visit_completed: 'Site Visit Completed',
-                              negotiation: 'Negotiation',
-                              booked: 'Booked',
-                              lost: 'Lost',
-                              closed: 'Closed',
-                              junk: 'Junk / Invalid'
-                            }
-                            return statusLabels[status?.toLowerCase()] || status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ')
-                          }
-
-                          const getPriorityLabel = (priority) => {
-                            if (!priority) return 'Warm'
-                            const priorityLabels = {
-                              Hot: 'Hot',
-                              Warm: 'Warm',
-                              Cold: 'Cold',
-                              Not_interested: 'Not Interested'
-                            }
-                            const p = String(priority).toLowerCase()
-                            const key = Object.keys(priorityLabels).find(k => k.toLowerCase() === p)
-                            return priorityLabels[key] || priority.charAt(0).toUpperCase() + priority.slice(1)
-                          }
+                          const displayName = lead.name?.trim() || 'N/A'
+                          const assignedTo = lead.assigned_to
+                          const assignedName = assignedTo && (typeof assignedTo === 'object') ? `${assignedTo.firstName || ''} ${assignedTo.lastName || ''}`.trim() : '–'
+                          const assignedId = assignedTo?._id || assignedTo
                           return (
                             <tr key={leadId} className="hover:bg-logo-beige transition-colors">
                               {canBulkActions && (
@@ -2270,93 +2084,41 @@ export default function AdminLeadsPage() {
                                   {lead.leadId || `LEAD-${String(lead._id).slice(-6)}`}
                                 </span>
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-center">
-                                {lead.score !== undefined ? (
-                                  <div className="flex items-center justify-center gap-2">
-                                    <div className="w-16 bg-gray-200 rounded-full h-2">
-                                      <div
-                                        className={`h-2 rounded-full ${lead.score >= 70 ? 'bg-red-500' :
-                                          lead.score >= 40 ? 'bg-orange-500' :
-                                            lead.score >= 20 ? 'bg-yellow-500' : 'bg-gray-400'
-                                          }`}
-                                        style={{ width: `${Math.min(lead.score, 100)}%` }}
-                                      />
-                                    </div>
-                                    <span className="text-xs font-semibold text-gray-700 min-w-[35px]">{lead.score}</span>
-                                    <button
-                                      onClick={() => handleReScoreLead(leadId)}
-                                      disabled={rescoring === leadId}
-                                      className="text-primary-600 hover:text-primary-800 disabled:opacity-50"
-                                      title="Re-score lead"
-                                    >
-                                      <Zap className="h-3 w-3" />
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={() => handleReScoreLead(leadId)}
-                                    disabled={rescoring === leadId}
-                                    className="text-xs text-primary-600 hover:text-primary-800 disabled:opacity-50"
-                                    title="Calculate score"
-                                  >
-                                    {rescoring === leadId ? 'Scoring...' : 'Score'}
-                                  </button>
-                                )}
-                              </td>
                               <td className="px-6 py-4 whitespace-nowrap">
                                 <button
                                   type="button"
                                   onClick={() => { setViewLead(lead); setShowViewModal(true); }}
                                   className="text-sm font-medium text-primary-600 hover:text-primary-800 text-left"
                                 >
-                                  {contactName}
+                                  {displayName}
                                 </button>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap">
-                                <div className="flex items-center gap-2">
-                                  <Mail className="h-4 w-4 text-gray-400" />
-                                  <span className="text-sm text-gray-900">{lead.contact?.email || '-'}</span>
-                                </div>
+                                <span className="text-sm text-gray-900">{lead.email || '-'}</span>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap">
-                                <div className="flex items-center gap-2">
-                                  <Phone className="h-4 w-4 text-gray-400" />
-                                  <span className="text-sm text-gray-900">{lead.contact?.phone || '-'}</span>
-                                </div>
+                                <span className="text-sm text-gray-900">{lead.phone || '-'}</span>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap">
-                                <span className="text-sm text-gray-900 capitalize">
-                                  {getSourceLabel(lead.source)}
-                                </span>
+                                <span className="text-sm text-gray-900 capitalize">{lead.source === 'excel' ? 'Excel' : (lead.source || 'Manual')}</span>
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
-                                {canEditLead ? (
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                {canAssignLeadBtn && owners.length > 0 ? (
                                   <select
-                                    key={`priority-select-${leadId}-${lead.priority || 'null'}`}
-                                    value={lead.priority ? String(lead.priority).charAt(0).toUpperCase() + String(lead.priority).slice(1).toLowerCase() : ''}
-                                    onChange={(e) => {
-                                      e.stopPropagation()
-                                      handleQuickPriorityChange(leadId, e.target.value)
-                                    }}
+                                    value={assignedId || ''}
+                                    onChange={(e) => handleQuickAssign(leadId, e.target.value || null)}
                                     onClick={(e) => e.stopPropagation()}
-                                    className="text-sm px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 min-w-[120px] cursor-pointer"
-                                    title="Change Priority"
+                                    className="text-sm px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 min-w-[120px] cursor-pointer"
                                   >
-                                    <option value="">Select Priority</option>
-                                    <option value="Hot">Hot</option>
-                                    <option value="Warm">Warm</option>
-                                    <option value="Cold">Cold</option>
-                                    <option value="Not_interested">Not Interested</option>
+                                    <option value="">Unassigned</option>
+                                    {owners.map((u) => (<option key={u._id} value={u._id}>{u.firstName} {u.lastName}</option>))}
                                   </select>
                                 ) : (
-                                  <span className={`px-2 py-1 rounded text-xs font-semibold ${String(lead.priority).toLowerCase() === 'hot' ? 'bg-red-100 text-red-800' :
-                                    String(lead.priority).toLowerCase() === 'warm' ? 'bg-yellow-100 text-yellow-800' :
-                                      String(lead.priority).toLowerCase() === 'cold' ? 'bg-blue-100 text-blue-800' :
-                                        'bg-gray-100 text-gray-800'
-                                    }`}>
-                                    {lead.priority ? lead.priority.charAt(0).toUpperCase() + lead.priority.slice(1).replace('_', ' ') : '-'}
-                                  </span>
+                                  <span className="text-sm text-gray-900">{assignedName}</span>
                                 )}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                {lead.total_amount != null ? Number(lead.total_amount) : '–'} / {lead.payment_status || '–'}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap">
                                 {canEditLead ? (
@@ -2364,63 +2126,44 @@ export default function AdminLeadsPage() {
                                     value={lead.status || ''}
                                     onChange={(e) => handleQuickStatusChange(leadId, e.target.value)}
                                     onClick={(e) => e.stopPropagation()}
-                                    className={`text-sm px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 min-w-[140px]
-                                      ${lead.status === 'booked' || lead.status === 'closed' ? 'bg-green-50 text-green-800 border-green-200' :
-                                        lead.status === 'lost' || lead.status === 'junk' ? 'bg-red-50 text-red-800 border-red-200' :
+                                    className={`text-sm px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 min-w-[120px] cursor-pointer
+                                      ${lead.status === 'booked' ? 'bg-green-50 text-green-800 border-green-200' :
+                                        lead.status === 'lost' ? 'bg-red-50 text-red-800 border-red-200' :
                                           lead.status === 'new' ? 'bg-blue-50 text-blue-800 border-blue-200' :
                                             'bg-primary-50 text-primary-800 border-primary-200'}`}
-                                    title="Change Status"
                                   >
-                                    <option value="">Select Status</option>
-                                    <option value="new">New Lead</option>
+                                    <option value="new">New</option>
                                     <option value="contacted">Contacted</option>
                                     <option value="qualified">Qualified</option>
-                                    <option value="site_visit_scheduled">Site Visit Scheduled</option>
-                                    <option value="site_visit_completed">Site Visit Completed</option>
-                                    <option value="negotiation">Negotiation</option>
                                     <option value="booked">Booked</option>
                                     <option value="lost">Lost</option>
-                                    <option value="closed">Closed</option>
-                                    <option value="junk">Junk / Invalid</option>
                                   </select>
                                 ) : (
-                                  <span className={`px-2 py-1 rounded text-xs font-semibold ${lead.status === 'booked' || lead.status === 'closed' ? 'bg-green-100 text-green-800' :
-                                    lead.status === 'lost' || lead.status === 'junk' ? 'bg-red-100 text-red-800' :
-                                      'bg-primary-100 text-primary-800'
-                                    }`}>
-                                    {lead.status ? lead.status.replace(/_/g, ' ').charAt(0).toUpperCase() + lead.status.replace(/_/g, ' ').slice(1) : '-'}
-                                  </span>
+                                  <span className="text-sm font-medium">{lead.status ? String(lead.status).charAt(0).toUpperCase() + String(lead.status).slice(1) : '–'}</span>
                                 )}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                {new Date(lead.createdAt).toLocaleDateString()}
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                {lead.updatedAt ? (
-                                  <div className="flex flex-col">
-                                    <span>{new Date(lead.updatedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                                    <span className="text-xs text-gray-500">{new Date(lead.updatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>
-                                  </div>
-                                ) : (
-                                  <span className="text-gray-400">-</span>
-                                )}
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                {lead.followUpDate ? (
-                                  <div className="flex flex-col">
-                                    <span className={new Date(lead.followUpDate) < new Date() ? 'text-red-600 font-semibold' : ''}>
-                                      {new Date(lead.followUpDate).toLocaleDateString()}
-                                    </span>
-                                    {new Date(lead.followUpDate) < new Date() && (
-                                      <span className="text-xs text-red-500">Overdue</span>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <span className="text-gray-400">-</span>
-                                )}
+                                {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : '–'}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
                                 <div className="flex items-center justify-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenLeadPdfPreview(lead)}
+                                    className="text-primary-600 hover:text-primary-900 transition-colors"
+                                    title="Open Tour PDF preview"
+                                  >
+                                    <FileText className="h-5 w-5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyLead(lead)}
+                                    disabled={duplicatingLeadId === leadId}
+                                    className="text-primary-600 hover:text-primary-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title="Duplicate lead"
+                                  >
+                                    <CopyIcon className="h-5 w-5" />
+                                  </button>
                                   {checkEntryPermission(lead, user, 'view', canViewLeads) && (
                                     <button
                                       type="button"
@@ -2557,44 +2300,15 @@ export default function AdminLeadsPage() {
                     <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto">
                       {columnLeads.map((lead) => {
                         const leadId = getLeadId(lead)
-                        const contactName = `${lead.contact?.firstName || ''} ${lead.contact?.lastName || ''}`.trim() || 'N/A'
+                        const displayName = lead.name?.trim() || 'N/A'
                         const isDragging = draggedLead && getLeadId(draggedLead) === leadId
                         const getStatusLabel = (status) => {
-                          if (!status) return 'New Lead'
-                          const statusLabels = {
-                            new: 'New Lead',
-                            contacted: 'Contacted',
-                            qualified: 'Qualified',
-                            site_visit_scheduled: 'Site Visit Scheduled',
-                            site_visit_completed: 'Site Visit Completed',
-                            negotiation: 'Negotiation',
-                            booked: 'Booked',
-                            lost: 'Lost',
-                            closed: 'Closed',
-                            junk: 'Junk / Invalid'
-                          }
-                          return statusLabels[status?.toLowerCase()] || status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, ' ')
+                          if (!status) return 'New'
+                          const statusLabels = { new: 'New', contacted: 'Contacted', qualified: 'Qualified', booked: 'Booked', lost: 'Lost' }
+                          return statusLabels[status?.toLowerCase()] || status.charAt(0).toUpperCase() + status.slice(1)
                         }
-                        const getPriorityColor = (priority) => {
-                          if (!priority) return 'bg-gray-100 text-gray-800'
-                          const p = String(priority).toLowerCase()
-                          if (p === 'hot') return 'bg-red-100 text-red-800'
-                          if (p === 'warm') return 'bg-orange-100 text-orange-800'
-                          if (p === 'cold') return 'bg-blue-100 text-blue-800'
-                          return 'bg-gray-100 text-gray-800'
-                        }
-                        const getPriorityLabel = (priority) => {
-                          if (!priority) return 'Warm'
-                          const priorityLabels = {
-                            Hot: 'Hot',
-                            Warm: 'Warm',
-                            Cold: 'Cold',
-                            Not_interested: 'Not Interested'
-                          }
-                          const p = String(priority).toLowerCase()
-                          const key = Object.keys(priorityLabels).find(k => k.toLowerCase() === p)
-                          return priorityLabels[key] || priority.charAt(0).toUpperCase() + priority.slice(1)
-                        }
+                        const nextFollowup = Array.isArray(lead.followups) && lead.followups.length > 0 ? lead.followups[lead.followups.length - 1] : null
+                        const followupDate = nextFollowup?.date || null
                         return (
                           <div
                             key={leadId}
@@ -2610,26 +2324,19 @@ export default function AdminLeadsPage() {
                               }
                             }}
                           >
-                            {/* Lead Name */}
-                            <h4 className="text-sm font-medium text-gray-900 mb-2 truncate">{contactName}</h4>
-                            
-                            {/* Two Column Layout */}
+                            <h4 className="text-sm font-medium text-gray-900 mb-2 truncate">{displayName}</h4>
                             <div className="grid grid-cols-2 gap-2">
-                              {/* Left Column */}
                               <div className="space-y-1.5">
-                                {/* Status */}
                                 <div className="flex items-center gap-1.5">
                                   <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getStatusColor(lead.status)}`}>
                                     {getStatusLabel(lead.status)}
                                   </span>
                                 </div>
-                                
-                                {/* Follow Up with Icon */}
-                                {lead.followUpDate ? (
+                                {followupDate ? (
                                   <div className="flex items-center gap-1.5">
-                                    <Calendar className={`h-3.5 w-3.5 ${new Date(lead.followUpDate) < new Date() ? 'text-red-500' : 'text-gray-500'}`} />
-                                    <span className={`text-xs ${new Date(lead.followUpDate) < new Date() ? 'text-red-600 font-semibold' : 'text-gray-600'}`}>
-                                      {new Date(lead.followUpDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                                    <Calendar className={`h-3.5 w-3.5 ${new Date(followupDate) < new Date() ? 'text-red-500' : 'text-gray-500'}`} />
+                                    <span className={`text-xs ${new Date(followupDate) < new Date() ? 'text-red-600 font-semibold' : 'text-gray-600'}`}>
+                                      {new Date(followupDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
                                     </span>
                                   </div>
                                 ) : (
@@ -2640,14 +2347,8 @@ export default function AdminLeadsPage() {
                                 )}
                               </div>
                               
-                              {/* Right Column */}
                               <div className="space-y-1.5">
-                                {/* Priority */}
-                                <div className="flex items-center justify-end">
-                                  <span className={`px-2 py-0.5 rounded text-xs font-semibold ${getPriorityColor(lead.priority)}`}>
-                                    {getPriorityLabel(lead.priority)}
-                                  </span>
-                                </div>
+                                {lead.budget && <div className="text-xs text-gray-600">Budget: {lead.budget}</div>}
                               </div>
                             </div>
                           </div>
@@ -2933,19 +2634,31 @@ export default function AdminLeadsPage() {
         )}
       </div>
 
-      <EntryPermissionModal
-        isOpen={!!permissionModalEntry}
-        onClose={() => setPermissionModalEntry(null)}
-        entry={permissionModalEntry}
-        entryType="leads"
+      <AddLeadModal
+        open={showAddModal}
+        onClose={() => { setShowAddModal(false); }}
         onSuccess={fetchLeads}
       />
 
-      <AddLeadModal
-        open={showAddModal}
-        onClose={() => setShowAddModal(false)}
-        onSuccess={fetchLeads}
-      />
+      {showUploadExcelModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 no-print p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+            <h2 className="text-lg font-bold text-gray-900 mb-4">Upload Excel</h2>
+            <p className="text-sm text-gray-600 mb-3">Upload .xlsx or .csv in travel leads format. Required: Name, Email, Phone. Optional: Destination, Travel Date, Budget, Status, Notes, Package Cost, No of Pax, Pax Type, Vehicle Type, Hotel Category, Meal Plan, Tour Nights/Days, Tour Start/End Date, Pick up, Drop, Destinations, Package Inclusions/Exclusions, Payment Policy, Cancellation Policy. All data will appear in lead view.</p>
+            <input
+              type="file"
+              accept=".xlsx,.csv,.xls"
+              onChange={(e) => setUploadExcelFile(e.target.files?.[0] || null)}
+              className="w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-primary-50 file:text-primary-700 file:font-medium"
+            />
+            <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
+              <button type="button" onClick={() => { setShowUploadExcelModal(false); setUploadExcelFile(null); }} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium">Cancel</button>
+              <button type="button" onClick={handleUploadExcelSubmit} disabled={!uploadExcelFile || uploadExcelLoading} className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed">{uploadExcelLoading ? 'Uploading...' : 'Upload'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <LeadDetailsModal
         open={showViewModal}
         lead={viewLead}
@@ -2968,3 +2681,17 @@ export default function AdminLeadsPage() {
   )
 }
 
+
+export default function AdminLeadsPage() {
+  return (
+    <Suspense fallback={
+      <DashboardLayout>
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+        </div>
+      </DashboardLayout>
+    }>
+      <AdminLeadsPageContent />
+    </Suspense>
+  )
+}

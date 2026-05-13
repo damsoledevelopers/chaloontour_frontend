@@ -2,7 +2,13 @@ import './globals.css';
 import { AuthProvider } from '../contexts/AuthContext';
 import { Toaster } from 'react-hot-toast';
 
-export const metadata = { title: 'ChaloOnTour - Super Admin', description: 'ChaloOnTour Super Admin Dashboard' };
+export const metadata = {
+  title: 'ChaloOnTour - Super Admin',
+  description: 'ChaloOnTour Super Admin Dashboard',
+  icons: {
+    icon: '/chalo-on-tour-e1766686260447.png',
+  }
+};
 
 export default function RootLayout({ children }) {
   return (

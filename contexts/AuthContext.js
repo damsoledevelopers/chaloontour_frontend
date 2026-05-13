@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '../lib/api';
+import { getRoleHomePath, normalizeRoleForApp } from '../lib/appPaths';
 
 const getToken = () => (typeof window === 'undefined' ? null : localStorage.getItem('token'));
 const setToken = (token) => { if (typeof window !== 'undefined') localStorage.setItem('token', token); };
@@ -25,8 +26,14 @@ export function AuthProvider({ children }) {
   const fetchUser = async () => {
     try {
       const res = await api.get('/auth/me');
-      const u = res.data.user;
-      if (u.role !== 'super_admin') {
+      const raw = res.data.user;
+      const u = {
+        ...raw,
+        id: raw?.id ?? (raw?._id != null ? String(raw._id) : undefined),
+        role: normalizeRoleForApp(raw?.role)
+      };
+      const allowedRoles = ['superadmin', 'staff'];
+      if (!allowedRoles.includes(u.role)) {
         removeToken();
         setUser(null);
         router.push('/auth/login');
@@ -34,8 +41,12 @@ export function AuthProvider({ children }) {
       }
       setUser(u);
     } catch (err) {
-      removeToken();
-      setUser(null);
+      const status = err?.response?.status;
+      // Only clear token on 401 (actually invalid). On 503 (DB down) keep the token.
+      if (status !== 503) {
+        removeToken();
+        setUser(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -43,18 +54,33 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     const res = await api.post('/auth/login', { email: email.trim(), password: password.trim() });
-    const { token, user: u } = res.data;
-    if (!u || u.role !== 'super_admin') {
+    const { token, user: raw } = res.data;
+    const u = raw
+      ? {
+          ...raw,
+          id: raw.id ?? (raw._id != null ? String(raw._id) : undefined),
+          role: normalizeRoleForApp(raw.role)
+        }
+      : null;
+    const allowedRoles = ['superadmin', 'staff'];
+    if (!u || !allowedRoles.includes(u.role)) {
       removeToken();
-      throw new Error('Only Super Admin can access this app.');
+      throw new Error('Access denied. Only active admin or portal users can access this app.');
     }
     setToken(token);
     setUser(u);
     try {
       const meRes = await api.get('/auth/me');
-      if (meRes.data && meRes.data.user) setUser(meRes.data.user);
+      if (meRes.data && meRes.data.user) {
+        const mu = meRes.data.user;
+        setUser({
+          ...mu,
+          id: mu.id ?? (mu._id != null ? String(mu._id) : undefined),
+          role: normalizeRoleForApp(mu.role)
+        });
+      }
     } catch (_) {}
-    router.push('/admin/dashboard');
+    router.push(getRoleHomePath(u.role));
   };
 
   const logout = () => {

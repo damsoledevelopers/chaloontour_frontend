@@ -4,7 +4,9 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
+import { appLogo } from '../../../lib/branding';
 import { useAuth } from '../../../contexts/AuthContext';
+import { getRoleHomePath } from '../../../lib/appPaths';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -18,12 +20,12 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (authLoading) return;
-    if (user && user.role === 'super_admin') {
-      router.replace('/admin/dashboard');
+    if (user && ['superadmin', 'staff'].includes(user.role)) {
+      router.replace(getRoleHomePath(user.role));
     }
   }, [user, authLoading, router]);
 
-  if (authLoading || (user && user.role === 'super_admin')) {
+  if (authLoading || (user && ['superadmin', 'staff'].includes(user.role))) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 via-slate-50 to-accent-50/30">
         <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary-600 border-t-transparent" />
@@ -38,7 +40,19 @@ export default function LoginPage() {
       await login(email.trim(), password.trim());
       toast.success('Login successful!');
     } catch (err) {
-      toast.error(err.message || 'Login failed. Only Super Admin can access.');
+      const status = err?.response?.status;
+      const serverMsg = err?.response?.data?.message;
+      let displayMsg = 'Login failed. Please check your email and password.';
+      if (status === 503) {
+        displayMsg = 'Server database is not connected. Please contact the administrator.';
+      } else if (status === 401) {
+        displayMsg = serverMsg || 'Invalid email or password.';
+      } else if (serverMsg) {
+        displayMsg = serverMsg;
+      } else if (err.message) {
+        displayMsg = err.message;
+      }
+      toast.error(displayMsg);
       setLoading(false);
     }
   };
@@ -48,7 +62,7 @@ export default function LoginPage() {
       <div className="max-w-md w-full">
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
-            <Image src="/chalo-on-tour-e1766686260447.png" alt="ChaloOnTour" width={220} height={80} className="object-contain" priority />
+            <Image src={appLogo} alt="ChaloOnTour" width={220} height={80} className="object-contain" style={{ height: 'auto' }} priority />
           </div>
         </div>
         <form onSubmit={handleSubmit} className="bg-white p-8 rounded-2xl shadow-card-hover border border-gray-100">

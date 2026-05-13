@@ -47,11 +47,23 @@ body {
 
 /* Print: only list view table on leads page */
 @media print {
-  .no-print { display: none !important; }
-  .print-only { display: block !important; }
-  .leads-page * { visibility: hidden; }
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .leads-page * {
+    visibility: hidden;
+  }
+
   .leads-print-area,
-  .leads-print-area * { visibility: visible; }
+  .leads-print-area * {
+    visibility: visible;
+  }
+
   .leads-print-area {
     position: absolute;
     left: 0;
@@ -60,6 +72,92 @@ body {
     padding: 0;
     background: white;
   }
-  .leads-print-area .print-only { margin-bottom: 0.5rem; }
+
+  .leads-print-area .print-only {
+    margin-bottom: 0.5rem;
+  }
+
+  /* Tour PDF: show only the designed invoice area when printing */
+  .tour-pdf-page * {
+    visibility: hidden;
+  }
+
+  .tour-pdf-print-area,
+  .tour-pdf-print-area * {
+    visibility: visible;
+  }
+
+  .tour-pdf-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    min-height: 100vh;
+    background: white;
+    padding: 0;
+  }
+
+  /* Tour PDF (admin tour-pdf page): hide everything except PDF root when printing */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Off-screen hidden root uses display:none on screen; must show in print */
+  #pdf-print-root {
+    display: block !important;
+    visibility: visible;
+  }
+
+  .pdf-root-print,
+  .pdf-root-print * {
+    visibility: visible;
+  }
+
+  .pdf-root-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    color-adjust: exact;
+  }
+
+  .pdf-root-print .noprint {
+    display: none !important;
+  }
+
+  @page {
+    size: A4;
+    margin: 0;
+  }
 }
-.print-only { display: none; }
+
+/* Tour PDF new window print styles */
+@page {
+  size: A4;
+  margin: 0;
+}
+
+.print-only {
+  display: none;
+}
+
+/* Shared small helpers for PDF sections */
+.section-heading {
+  @apply text-sm font-semibold text-slate-800 mb-1.5;
+}
+
+.summary-th {
+  @apply px-3 py-2 text-left text-[11px] font-semibold text-slate-600 border-b border-slate-200;
+}
+
+.summary-td {
+  @apply px-3 py-2 align-top text-[11px] text-slate-800 border-b border-slate-100;
+}
+
+.note-text {
+  @apply text-[11px] text-slate-600 mb-2;
+}

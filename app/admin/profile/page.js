@@ -1,15 +1,22 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import DashboardLayout from '../../../components/Layout/DashboardLayout';
 import { useAuth } from '../../../contexts/AuthContext';
-import { api } from '../../../lib/api';
-import { Save, Loader2, User, Mail, Phone, MapPin } from 'lucide-react';
+import { api, getProfileImageUrl } from '../../../lib/api';
+import { Save, Loader2, User, Phone, MapPin, Camera } from 'lucide-react';
 import toast from 'react-hot-toast';
+
+const CITY_OPTIONS = [
+  'Pune', 'Mumbai', 'Delhi', 'Bangalore', 'Hyderabad', 'Chennai', 'Kolkata',
+  'Ahmedabad', 'Jaipur', 'Lucknow', 'Nagpur', 'Indore', 'Thane', 'Bhopal', 'Other'
+];
 
 export default function ProfilePage() {
   const { user, fetchUser } = useAuth();
+  const fileInputRef = useRef(null);
   const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [form, setForm] = useState({
     firstName: '',
     lastName: '',
@@ -58,6 +65,31 @@ export default function ProfilePage() {
     }
   };
 
+  const profileImageUrl = getProfileImageUrl(user?.profileImage);
+
+  const handlePhotoChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image (JPG, PNG or GIF)');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Image must be under 2MB');
+      return;
+    }
+    setUploadingPhoto(true);
+    const formData = new FormData();
+    formData.append('avatar', file);
+    api.post('/auth/me/avatar', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+      .then(() => {
+        toast.success('Profile photo updated.');
+        fetchUser();
+      })
+      .catch((err) => toast.error(err.response?.data?.message || 'Upload failed.'))
+      .finally(() => { setUploadingPhoto(false); e.target.value = ''; });
+  };
+
   if (!user) return null;
 
   const initials = [user.firstName?.[0], user.lastName?.[0]].filter(Boolean).join('').toUpperCase() || '?';
@@ -71,8 +103,30 @@ export default function ProfilePage() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-card overflow-hidden">
           <div className="h-24 bg-gradient-to-r from-primary-600 to-primary-700" />
           <div className="px-6 pb-6 -mt-12 relative">
-            <div className="h-24 w-24 rounded-2xl bg-white border-4 border-white shadow-lg flex items-center justify-center text-2xl font-bold text-primary-600">
-              {initials}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/gif"
+              className="hidden"
+              onChange={handlePhotoChange}
+            />
+            <div className="relative inline-block">
+              <div className="h-24 w-24 rounded-2xl bg-white border-4 border-white shadow-lg flex items-center justify-center text-2xl font-bold text-primary-600 overflow-hidden">
+                {profileImageUrl ? (
+                  <img src={profileImageUrl} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                  initials
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingPhoto}
+                className="absolute bottom-0 right-0 h-8 w-8 rounded-lg bg-primary-600 text-white flex items-center justify-center shadow hover:bg-primary-700 disabled:opacity-60 transition-colors"
+                title="Upload photo"
+              >
+                {uploadingPhoto ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+              </button>
             </div>
             <h2 className="mt-4 text-xl font-semibold text-gray-900">
               {form.firstName} {form.lastName}
@@ -172,13 +226,16 @@ export default function ProfilePage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">City</label>
-                  <input
+                  <select
                     name="address.city"
-                    value={form.address.city}
+                    value={CITY_OPTIONS.includes(form.address.city) ? form.address.city : 'Other'}
                     onChange={handleChange}
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-gray-900 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors"
-                    placeholder="City"
-                  />
+                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-gray-900 focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 transition-colors bg-white"
+                  >
+                    {CITY_OPTIONS.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">State / Region</label>

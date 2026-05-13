@@ -3,12 +3,16 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import DashboardLayout from '../../../../components/Layout/DashboardLayout';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { getLeadsPath } from '../../../../lib/appPaths';
 
 export default function NewLeadRedirect() {
   const router = useRouter();
+  const { user } = useAuth();
+  const leadsPath = getLeadsPath(user);
   useEffect(() => {
-    router.replace('/admin/leads?add=1');
-  }, [router]);
+    router.replace(`${leadsPath}?add=1`);
+  }, [router, leadsPath]);
   return (
     <DashboardLayout>
       <div className="flex items-center justify-center min-h-[200px]">

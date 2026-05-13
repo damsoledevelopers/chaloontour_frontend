@@ -3,14 +3,18 @@
 import { useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import DashboardLayout from '../../../../components/Layout/DashboardLayout';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { getLeadsPath } from '../../../../lib/appPaths';
 
 export default function LeadViewRedirect() {
   const params = useParams();
   const router = useRouter();
+  const { user } = useAuth();
   const id = params?.id;
+  const leadsPath = getLeadsPath(user);
   useEffect(() => {
-    if (id) router.replace(`/admin/leads?view=${id}`);
-  }, [id, router]);
+    if (id) router.replace(`${leadsPath}?view=${id}`);
+  }, [id, router, leadsPath]);
   return (
     <DashboardLayout>
       <div className="flex items-center justify-center min-h-[200px]">

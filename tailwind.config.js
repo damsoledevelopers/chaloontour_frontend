@@ -4,19 +4,19 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        /* ChaloOnTour: dark blue (Chalo/Tour) + red accent (On) */
+        /* Admin panel: red-blue combo — primary = blue, accent = red */
         primary: {
-          50: '#eef4fc',
-          100: '#d9e6f7',
-          200: '#b8d0ef',
-          300: '#8ab0e3',
-          400: '#5589d4',
-          500: '#336bc4',
-          600: '#2654a8',
-          700: '#1e4289',
-          800: '#1c3a72',
-          900: '#1b335f',
-          950: '#132042',
+          50: '#eff6ff',
+          100: '#dbeafe',
+          200: '#bfdbfe',
+          300: '#93c5fd',
+          400: '#60a5fa',
+          500: '#3b82f6',
+          600: '#2563eb',
+          700: '#1d4ed8',
+          800: '#1e40af',
+          900: '#1e3a8a',
+          950: '#172554',
         },
         accent: {
           50: '#fef2f2',
@@ -24,8 +24,8 @@ module.exports = {
           200: '#fecaca',
           300: '#fca5a5',
           400: '#f87171',
-          500: '#dc2626',
-          600: '#c41e3a',
+          500: '#ef4444',
+          600: '#dc2626',
           700: '#b91c1c',
           800: '#991b1b',
           900: '#7f1d1d',
