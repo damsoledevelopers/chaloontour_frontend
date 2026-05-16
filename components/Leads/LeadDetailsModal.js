@@ -145,11 +145,9 @@ export default function LeadDetailsModal({ open, lead, onClose, onEdit, canEdit 
     const tid = toast.loading('Generating PDF...');
     try {
       const data = mapLeadToTourPdfData(lead);
-      const response = await api.post('/leads/convert-to-pdf', {
-        leadId: lead._id,
-        data,
-        fileName: `Tour-Quotation-${data.quoteNumber || lead._id}`
-      }, {
+      const fileName = `Tour-Quotation-${data.quoteNumber || lead._id}`;
+      await api.post(`/leads/${lead._id}/generate-pdf`, { data, fileName });
+      const response = await api.post(`/leads/${lead._id}/download-pdf`, { data, fileName }, {
         responseType: 'blob'
       });
 
@@ -163,7 +161,17 @@ export default function LeadDetailsModal({ open, lead, onClose, onEdit, canEdit 
       toast.success('PDF Downloaded!', { id: tid });
     } catch (error) {
       console.error('Download Error:', error);
-      toast.error('Failed to generate PDF.', { id: tid });
+      let msg = 'Failed to generate PDF.';
+      const errData = error.response?.data;
+      if (errData instanceof Blob) {
+        try {
+          const json = JSON.parse(await errData.text());
+          msg = json.message || json.error || msg;
+        } catch (_) {}
+      } else if (errData?.message) {
+        msg = errData.message;
+      }
+      toast.error(msg, { id: tid });
     } finally {
       setDownloadingPdf(false);
     }

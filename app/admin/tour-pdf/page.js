@@ -469,8 +469,12 @@ function TourPDFPageContent() {
             const fileNameBase = data.packageName?.trim() || `Tour-Quotation-${data.quoteNumber || leadId}`;
             const sanitizedFileName = fileNameBase.replace(/[/\\?%*:|"<>]/g, '-');
 
-            const response = await api.post('/leads/convert-to-pdf', {
-                leadId,
+            await api.post(`/leads/${leadId}/generate-pdf`, {
+                data,
+                fileName: sanitizedFileName
+            });
+
+            const response = await api.post(`/leads/${leadId}/download-pdf`, {
                 data,
                 fileName: sanitizedFileName
             }, {
